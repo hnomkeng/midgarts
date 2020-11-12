@@ -10,6 +10,8 @@ import (
 	"strconv"
 
 	"github.com/pkg/errors"
+
+	bytesutil "github.com/project-midgard/midgarts/bytes"
 )
 
 type FileType int
@@ -43,26 +45,28 @@ type SpriteFile struct {
 	Palette *bytes.Buffer
 }
 
-func Load(buf io.Reader) (file *SpriteFile, err error) {
-	file = new(SpriteFile)
+func Load(buf *bytes.Buffer) (f *SpriteFile, err error) {
+	f = new(SpriteFile)
 
-	if err := file.parseHeader(buf); err != nil {
+	if err := f.parseHeader(buf); err != nil {
 		return nil, err
 	}
 
-	if file.Header.Version >= 2.1 {
-		if err = file.readCompressedIndexedFrames(buf); err != nil {
-			return nil, err
-		}
-	} else {
-		return nil, fmt.Errorf("unsupported version %f\n", file.Header.Version)
+	if f.Header.Version < 2.1 {
+		return nil, fmt.Errorf("unsupported version %f\n", f.Header.Version)
 	}
 
-	if err = file.readRGBAFrames(buf); err != nil {
+	f.parsePalette(buf)
+
+	if err = f.readCompressedIndexedFrames(buf); err != nil {
 		return nil, err
 	}
 
-	return file, nil
+	if err = f.readRGBAFrames(buf); err != nil {
+		return nil, err
+	}
+
+	return f, nil
 }
 
 func (f *SpriteFile) parseHeader(buf io.Reader) error {
@@ -155,4 +159,11 @@ func (f *SpriteFile) readRGBAFrames(buf io.Reader) error {
 	}
 
 	return nil
+}
+
+func (f *SpriteFile) parsePalette(buf *bytes.Buffer) {
+	reader := bytes.NewReader(buf.Bytes())
+	pos, _ := reader.Seek(0, io.SeekCurrent)
+	_ = bytesutil.SkipBytes(reader, int64((reader.Len()-1024)-int(pos)))
+	_, _ = io.ReadFull(io.LimitReader(reader, PaletteSize), f.Palette.Bytes())
 }
